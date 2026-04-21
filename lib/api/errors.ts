@@ -1,6 +1,7 @@
 export type ErrorCode =
   | "not-found"
   | "forbidden"
+  | "bad-request"
   | "validation-failed"
   | "conflict"
   | "rate-limited"

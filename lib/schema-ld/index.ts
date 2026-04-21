@@ -1,4 +1,4 @@
-import type { Post, Page, Site, Author } from "@/lib/db/schema";
+import type { Post, Page, Site, Author, Entity, Location } from "@/lib/db/schema";
 
 type JsonLd = Record<string, unknown>;
 
@@ -175,6 +175,216 @@ export function generateSchemaForPost(
   return {
     "@context": "https://schema.org",
     "@graph": graph,
+  };
+}
+
+/**
+ * LocalBusiness JSON-LD for geo pages.
+ * Used on "[keyword] in [city]" programmatic pages.
+ */
+export function generateLocalBusiness(opts: {
+  name: string;
+  description?: string;
+  url?: string;
+  telephone?: string;
+  address: {
+    streetAddress?: string;
+    city: string;
+    region?: string;
+    postalCode?: string;
+    country: string;
+  };
+  geo?: { latitude: number; longitude: number };
+  openingHours?: string[];
+  priceRange?: string;
+  image?: string;
+  ratingValue?: number;
+  ratingCount?: number;
+}): JsonLd {
+  const { name, description, url, telephone, address, geo, openingHours, priceRange, image, ratingValue, ratingCount } = opts;
+  return {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name,
+    description,
+    url,
+    telephone,
+    image,
+    priceRange,
+    openingHoursSpecification: openingHours?.map((h) => ({ "@type": "OpeningHoursSpecification", dayOfWeek: h })),
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: address.streetAddress,
+      addressLocality: address.city,
+      addressRegion: address.region,
+      postalCode: address.postalCode,
+      addressCountry: address.country,
+    },
+    geo: geo
+      ? { "@type": "GeoCoordinates", latitude: geo.latitude, longitude: geo.longitude }
+      : undefined,
+    aggregateRating:
+      ratingValue != null
+        ? { "@type": "AggregateRating", ratingValue, reviewCount: ratingCount ?? 0 }
+        : undefined,
+  };
+}
+
+/**
+ * Product JSON-LD for comparison / review pages.
+ */
+export function generateProduct(entity: Entity, baseUrl?: string): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: entity.name,
+    description: entity.description ?? undefined,
+    url: entity.url ?? (baseUrl ? `${baseUrl}/${entity.slug}-review` : undefined),
+    image: entity.logoUrl ?? undefined,
+    offers: entity.priceRange
+      ? {
+          "@type": "Offer",
+          price: entity.priceRange,
+          priceCurrency: "USD",
+        }
+      : undefined,
+    aggregateRating:
+      entity.ratingValue != null
+        ? {
+            "@type": "AggregateRating",
+            ratingValue: entity.ratingValue,
+            reviewCount: entity.ratingCount ?? 0,
+            bestRating: 5,
+            worstRating: 1,
+          }
+        : undefined,
+  };
+}
+
+/**
+ * Review JSON-LD for a single entity review page.
+ */
+export function generateReview(opts: {
+  entity: Entity;
+  reviewBody: string;
+  reviewerName?: string;
+  reviewDate?: string;
+  ratingValue: number;
+  baseUrl?: string;
+}): JsonLd {
+  const { entity, reviewBody, reviewerName, reviewDate, ratingValue, baseUrl } = opts;
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      generateProduct(entity, baseUrl),
+      {
+        "@type": "Review",
+        itemReviewed: {
+          "@type": "Product",
+          name: entity.name,
+        },
+        author: reviewerName ? { "@type": "Person", name: reviewerName } : undefined,
+        datePublished: reviewDate ?? new Date().toISOString().split("T")[0],
+        reviewBody,
+        reviewRating: {
+          "@type": "Rating",
+          ratingValue,
+          bestRating: 5,
+          worstRating: 1,
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * ItemList JSON-LD for marketplace / ranking pages.
+ * Each entity gets a ListItem with its position and URL.
+ */
+export function generateItemList(opts: {
+  name: string;
+  description?: string;
+  url?: string;
+  items: Array<{ entity: Entity; position: number; url?: string }>;
+}): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: opts.name,
+    description: opts.description,
+    url: opts.url,
+    numberOfItems: opts.items.length,
+    itemListElement: opts.items.map(({ entity, position, url }) => ({
+      "@type": "ListItem",
+      position,
+      name: entity.name,
+      url: url ?? entity.url ?? undefined,
+      item: {
+        "@type": "Product",
+        name: entity.name,
+        description: entity.description ?? undefined,
+        image: entity.logoUrl ?? undefined,
+      },
+    })),
+  };
+}
+
+/**
+ * Speakable schema for AIO-optimised content.
+ * Marks specific CSS selectors / xpaths as speakable.
+ */
+export function generateSpeakable(url: string, cssSelectors = [".direct-answer", "h1", "h2"]): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    speakable: {
+      "@type": "SpeakableSpecification",
+      cssSelector: cssSelectors,
+    },
+    url,
+  };
+}
+
+/**
+ * Full schema graph for a geo page.
+ */
+export function generateSchemaForGeoPage(opts: {
+  title: string;
+  description?: string;
+  slug: string;
+  site: Site;
+  location: Location;
+  keyword: string;
+}): JsonLd {
+  const { title, description, slug, site, location, keyword } = opts;
+  const baseUrl = site.domain ? `https://${site.domain}` : "";
+  const url = baseUrl ? `${baseUrl}/${slug}` : undefined;
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        name: title,
+        description,
+        url,
+        isPartOf: { "@type": "WebSite", name: site.name, url: baseUrl || undefined },
+      },
+      generateLocalBusiness({
+        name: `${keyword} in ${location.city}`,
+        description: `Find ${keyword} services in ${location.city}${location.region ? `, ${location.region}` : ""}.`,
+        url,
+        address: {
+          city: location.city,
+          region: location.region ?? undefined,
+          country: location.country,
+        },
+        geo:
+          location.latitude != null && location.longitude != null
+            ? { latitude: location.latitude, longitude: location.longitude }
+            : undefined,
+      }),
+    ],
   };
 }
 

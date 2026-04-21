@@ -5,6 +5,7 @@ import {
   timestamp,
   boolean,
   integer,
+  real,
   jsonb,
   pgEnum,
   uniqueIndex,
@@ -43,6 +44,15 @@ export const programmaticTemplateStatusEnum = pgEnum(
   "programmatic_template_status",
   ["draft", "active", "paused"]
 );
+export const programmaticTemplateTypeEnum = pgEnum("programmatic_template_type", [
+  "seo",         // generic keyword-based
+  "geo",         // [keyword] in [city]
+  "comparison",  // A vs B
+  "review",      // product/service review
+  "marketplace", // listing / lead-gen
+  "aio",         // AI Overview optimised
+  "llm",         // LLM search optimised
+]);
 export const aiProviderEnum = pgEnum("ai_provider", ["openrouter"]);
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -363,6 +373,7 @@ export const programmaticTemplates = pgTable("programmatic_templates", {
       [key: string]: string | undefined;
     }>()
     .default({}),
+  type: programmaticTemplateTypeEnum("type").notNull().default("seo"),
   status: programmaticTemplateStatusEnum("status").notNull().default("draft"),
   lastGeneratedAt: timestamp("last_generated_at", { mode: "date" }),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
@@ -390,6 +401,52 @@ export const programmaticRuns = pgTable("programmatic_runs", {
     >()
     .default([]),
   dryRun: boolean("dry_run").notNull().default(false),
+});
+
+// ─── Geo / Entities / CTAs ────────────────────────────────────────────────────
+
+export const locations = pgTable("locations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  siteId: uuid("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+  country: text("country").notNull().default("US"),
+  region: text("region"),
+  city: text("city").notNull(),
+  slug: text("slug").notNull(),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
+  population: integer("population"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export const entities = pgTable("entities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  siteId: uuid("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  type: text("type").notNull().default("product"), // product | service | tool | brand | place
+  description: text("description"),
+  url: text("url"),
+  logoUrl: text("logo_url"),
+  ratingValue: real("rating_value"),
+  ratingCount: integer("rating_count"),
+  priceRange: text("price_range"),
+  pros: jsonb("pros").$type<string[]>().default([]),
+  cons: jsonb("cons").$type<string[]>().default([]),
+  attributes: jsonb("attributes").$type<Record<string, string>>().default({}),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+});
+
+export const ctas = pgTable("ctas", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  siteId: uuid("site_id").notNull().references(() => sites.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  url: text("url").notNull(),
+  type: text("type").notNull().default("button"), // button | form | phone | email
+  entityId: uuid("entity_id").references(() => entities.id, { onDelete: "set null" }),
+  isAffiliate: boolean("is_affiliate").notNull().default(false),
+  affiliateDisclosure: text("affiliate_disclosure"),
+  createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
 });
 
 // ─── Audit Runs ───────────────────────────────────────────────────────────────
@@ -618,6 +675,20 @@ export const auditRunsRelations = relations(auditRuns, ({ one }) => ({
   page: one(pages, { fields: [auditRuns.pageId], references: [pages.id] }),
 }));
 
+export const locationsRelations = relations(locations, ({ one }) => ({
+  site: one(sites, { fields: [locations.siteId], references: [sites.id] }),
+}));
+
+export const entitiesRelations = relations(entities, ({ one, many }) => ({
+  site: one(sites, { fields: [entities.siteId], references: [sites.id] }),
+  ctas: many(ctas),
+}));
+
+export const ctasRelations = relations(ctas, ({ one }) => ({
+  site: one(sites, { fields: [ctas.siteId], references: [sites.id] }),
+  entity: one(entities, { fields: [ctas.entityId], references: [entities.id] }),
+}));
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -648,3 +719,9 @@ export type ProgrammaticTemplate = typeof programmaticTemplates.$inferSelect;
 export type NewProgrammaticTemplate = typeof programmaticTemplates.$inferInsert;
 export type ProgrammaticRun = typeof programmaticRuns.$inferSelect;
 export type NewProgrammaticRun = typeof programmaticRuns.$inferInsert;
+export type Location = typeof locations.$inferSelect;
+export type NewLocation = typeof locations.$inferInsert;
+export type Entity = typeof entities.$inferSelect;
+export type NewEntity = typeof entities.$inferInsert;
+export type Cta = typeof ctas.$inferSelect;
+export type NewCta = typeof ctas.$inferInsert;

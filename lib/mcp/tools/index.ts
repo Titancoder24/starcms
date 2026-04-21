@@ -3,6 +3,8 @@ import { pageTools } from "./pages";
 import { mediaTools } from "./media";
 import { auditTools } from "./audit";
 import { programmaticTools } from "./programmatic";
+import { geoTools } from "./geo";
+import { aioTools } from "./aio";
 import { z } from "zod/v4";
 import type { ApiKeyContext } from "@/lib/auth/api-key";
 import * as AuthorsApi from "@/lib/api/authors";
@@ -223,6 +225,8 @@ export const allTools: Tool[] = [
   ...taxonomyTools,
   ...(auditTools as unknown as Tool[]),
   ...(programmaticTools as unknown as Tool[]),
+  ...(geoTools as unknown as Tool[]),
+  ...(aioTools as unknown as Tool[]),
   ...redirectTools,
   ...schemaTools,
 ];
